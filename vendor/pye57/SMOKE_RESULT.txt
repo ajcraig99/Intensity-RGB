@@ -1,0 +1,29 @@
+B1 extension smoke results (after coordinator-side fixes — see commit message).
+
+Run: python3 vendor/pye57/extension_smoke.py <fixture>
+
+Each row exercises read→ScanBlockReader→ScanBlockWriter→read clone path.
+
+Fixture                               scans  points     blocks  output_size  status
+carpark_stairs.e57                    1      4,138,438  9       77 MB        OK
+tests/artifacts/single_scan_rgb.e57   1      2,000      1       42 KB        OK
+tests/artifacts/multi_scan.e57        3*     1,000      1       23 KB        OK*
+tests/artifacts/intensity_only.e57    1      1,500      1       28 KB        OK
+
+* multi_scan: smoke only round-trips scan 0; the substrate supports multiple
+  scans (loop over src.scan_count). B2's E57CloneWriter iterates all scans.
+
+Field-name preservation: all 7 fields on carpark and single_scan_rgb;
+exactly 4 (X/Y/Z + intensity, no RGB) on intensity_only — the fail-fast
+path G1a Mode C will gate on.
+
+Three coordinator-side fixes applied after the B1 agent timed out (all
+in vendor/pye57/src/pye57/streaming.py):
+  1. resolve_field_specs: use raw Node.get(i) for .type() then cast for
+     typed methods. utils.get_node returns cast subclass which pybind11
+     does not expose .type() on.
+  2. clone_prototype: same fix.
+  3. build_scan_writer: don't re-wrap an already-cast CompressedVectorNode
+     through libe57.CompressedVectorNode(Node) ctor — pybind11 dynamic_cast
+     rejects same-type re-wraps.
+  4. ScanBlockWriter.write_block: return n (was returning None).
