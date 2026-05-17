@@ -1,17 +1,14 @@
-"""Module entrypoint for `python -m intensity_rgb`.
+"""Module entrypoint for ``python -m intensity_rgb``.
 
-Wave 4 will replace this stub with a real GUI launcher (importing from
-``intensity_rgb.app``). For now we just print a hint and exit cleanly.
+Launches the Wave 4 PySide6 desktop UI defined in
+:mod:`intensity_rgb.app`. For headless smoke tests, set
+``QT_QPA_PLATFORM=offscreen`` before invoking.
 """
+from __future__ import annotations
+
 import sys
 
-
-def main() -> int:
-    print(
-        "Intensity-RGB V2.0 GUI — coming in M4 (Wave 4). "
-        "Use 'python -m intensity_rgb.cli' for now."
-    )
-    return 0
+from intensity_rgb.app import main
 
 
 if __name__ == "__main__":
