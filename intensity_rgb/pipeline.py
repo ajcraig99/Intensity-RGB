@@ -731,6 +731,7 @@ def pipeline_bake_normals(
     on_progress: Optional[Callable[[ProgressEvent], None]] = None,
     cancel_flag: Optional[threading.Event] = None,
     progress_every: int = 5,
+    on_orientation_result: Optional[Callable[[object], None]] = None,
 ) -> PipelineResult:
     """Two-pass voxel-normal bake + shading.
 
@@ -820,6 +821,11 @@ def pipeline_bake_normals(
         up_vector=np.asarray(up_vector, dtype=np.float32),
         voxel_size=voxel_size,
     )
+    if on_orientation_result is not None:
+        try:
+            on_orientation_result(orient_result)
+        except Exception:  # pragma: no cover - never let UI callbacks crash the pipeline
+            pass
     if invert_globally:
         # Flip every frozen normal in place. We don't touch quality
         # flags or means — only the unit-vector directions.

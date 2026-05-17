@@ -187,6 +187,35 @@ def test_pipeline_bake_normals_normal_as_color_synthetic(tmp_path):
     assert result.total_points == 5000
 
 
+def test_pipeline_bake_normals_orientation_callback_fires(tmp_path):
+    """The optional ``on_orientation_result`` hook fires once after Pass 1.
+
+    Added in Wave 4 / D3 so the worker can surface the connected-component
+    list to the UI as per-component chips. The callback receives the
+    pipeline's :class:`OrientationResult` directly; we only assert it
+    was invoked exactly once and the payload has a non-empty
+    ``components`` list.
+    """
+    src = f"{FIX}/single_scan_rgb.e57"
+    out = str(tmp_path / "bake_orient_cb.e57")
+    seen: list = []
+
+    def cb(orient_result):
+        seen.append(orient_result)
+
+    result = pipeline_bake_normals(
+        src,
+        out,
+        intensity_range=(0, 4096),
+        shading_mode="lambertian",
+        voxel_size=0.5,
+        on_orientation_result=cb,
+    )
+    assert result.total_points == 5000
+    assert len(seen) == 1, "on_orientation_result must fire exactly once"
+    assert hasattr(seen[0], "components"), "callback received an OrientationResult"
+
+
 # ---- get_aabb_and_intensity_range helper ---------------------------------
 
 

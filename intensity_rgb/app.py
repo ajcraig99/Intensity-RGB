@@ -34,7 +34,7 @@ import sys
 import traceback
 from typing import Optional
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import Qt, QTimer, Signal, QSettings, QByteArray
 from PySide6.QtGui import QColor, QPalette, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
@@ -54,6 +54,7 @@ from PySide6.QtWidgets import (
     QSlider,
     QSpinBox,
     QTextEdit,
+    QToolButton,
     QVBoxLayout,
     QWidget,
     QButtonGroup,
@@ -65,6 +66,13 @@ from intensity_rgb.io.e57_clone import E57CloneReader
 
 
 __all__ = ["MainWindow", "main"]
+
+
+# QSettings identity per Wave 4 / D3 prompt. Organization is a short id;
+# application carries the human-readable product name + version so future
+# V2.x can opt into a clean keyspace without colliding with V2.0.
+QSETTINGS_ORG = "intensity-rgb"
+QSETTINGS_APP = "Intensity-RGB V2.0"
 
 
 # ---------------------------------------------------------------------------
@@ -153,6 +161,8 @@ class MainWindow(QMainWindow):
         self.resize(900, 920)
 
         self._worker = None  # late-bound on Start
+        self._worker_thread = None  # late-bound on Start (owns the worker)
+        self._current_stage: str = ""  # set by worker.stage signal
         self._cap_report: Optional[cap_mod.CapabilityReport] = None
         self._cap_debounce = QTimer(self)
         self._cap_debounce.setSingleShot(True)
@@ -171,6 +181,12 @@ class MainWindow(QMainWindow):
         root.addWidget(self._build_color_shading_section())
         root.addWidget(self._build_job_section())
         root.addWidget(self._build_log_section(), stretch=1)
+
+        # Restore prior session state (window geometry, path entries, all
+        # bake/* settings). Tolerant of missing or stale keys — the
+        # defaults already baked into each widget remain authoritative
+        # when QSettings is empty.
+        self._load_settings()
 
         self._update_start_enabled()
 
@@ -320,7 +336,8 @@ class MainWindow(QMainWindow):
 
         # --- Shading radios ---
         shading_row = QHBoxLayout()
-        shading_row.addWidget(QLabel("Shading:"))
+        shading_label = QLabel("Shading:")
+        shading_row.addWidget(shading_label)
         self.shade_none_radio = QRadioButton("None")
         self.shade_lambertian_radio = QRadioButton("Lambertian")
         self.shade_three_pt_radio = QRadioButton("3-pt")
@@ -337,6 +354,26 @@ class MainWindow(QMainWindow):
             shading_row.addWidget(r)
         shading_row.addStretch(1)
         layout.addLayout(shading_row)
+
+        # Tooltip per design §"Normal orientation": viewpoint-free normal
+        # orientation is fundamentally heuristic; signs can flip for
+        # unusual scene geometries (e.g. fully-enclosed indoor scans
+        # without a sky-facing surface). Inform the user up front.
+        _shading_tip = (
+            "Voxel normals are oriented without a viewpoint, using the "
+            "up-vector (and ground heuristic) only. Orientation is "
+            "fundamentally heuristic and may be flipped for unusual scene "
+            "geometries — toggle 'Invert normals globally' if the lit "
+            "side of the cloud appears reversed."
+        )
+        shading_label.setToolTip(_shading_tip)
+        for r in (
+            self.shade_none_radio,
+            self.shade_lambertian_radio,
+            self.shade_three_pt_radio,
+            self.shade_normal_radio,
+        ):
+            r.setToolTip(_shading_tip)
 
         # --- Light dir azimuth / elevation ---
         light_row = QHBoxLayout()
@@ -394,7 +431,49 @@ class MainWindow(QMainWindow):
         voxel_row.addStretch(1)
         layout.addLayout(voxel_row)
 
+        # --- Up vector row -------------------------------------------------
+        # Survey data is almost always gravity-aligned (+Z up); we expose
+        # editable XYZ components anyway so non-standard scans aren't a
+        # dead end. Tooltip notes the default rationale.
+        up_row = QHBoxLayout()
+        up_label = QLabel("Up vector")
+        up_row.addWidget(up_label)
+        self.up_x_spin = QDoubleSpinBox()
+        self.up_x_spin.setRange(-1.0, 1.0)
+        self.up_x_spin.setDecimals(3)
+        self.up_x_spin.setSingleStep(0.1)
+        self.up_x_spin.setValue(0.0)
+        self.up_y_spin = QDoubleSpinBox()
+        self.up_y_spin.setRange(-1.0, 1.0)
+        self.up_y_spin.setDecimals(3)
+        self.up_y_spin.setSingleStep(0.1)
+        self.up_y_spin.setValue(0.0)
+        self.up_z_spin = QDoubleSpinBox()
+        self.up_z_spin.setRange(-1.0, 1.0)
+        self.up_z_spin.setDecimals(3)
+        self.up_z_spin.setSingleStep(0.1)
+        self.up_z_spin.setValue(1.0)
+        for label_text, spin in (("X", self.up_x_spin), ("Y", self.up_y_spin), ("Z", self.up_z_spin)):
+            up_row.addWidget(QLabel(label_text))
+            up_row.addWidget(spin)
+        up_row.addStretch(1)
+        layout.addLayout(up_row)
+
+        _up_tip = (
+            "Up vector used to orient voxel normals consistently across "
+            "the cloud. Survey data is typically gravity-aligned, so +Z up "
+            "(0, 0, 1) is the correct default for nearly all scans."
+        )
+        up_label.setToolTip(_up_tip)
+        for s in (self.up_x_spin, self.up_y_spin, self.up_z_spin):
+            s.setToolTip(_up_tip)
+
         self.invert_normals_check = QCheckBox("Invert normals globally")
+        self.invert_normals_check.setToolTip(
+            "Flip every per-voxel normal after orientation. Use this if "
+            "the heuristic orientation produced an inverted shading "
+            "result for the scene as a whole."
+        )
         layout.addWidget(self.invert_normals_check)
 
         return box
@@ -439,6 +518,42 @@ class MainWindow(QMainWindow):
         button_row.addWidget(self.cancel_button)
         button_row.addStretch(1)
         layout.addLayout(button_row)
+
+        # --- Components panel (per design §"Normal orientation") ---------
+        # V2.0 scope: read-only chips populated after Pass 1 of a
+        # bake_normals job. One QToolButton per top-K component, text
+        # "#{id}: {n} voxels", tooltip carrying the mean-normal direction.
+        # Hidden by default; shown only once ``components_info`` fires.
+        # Collapsible via the groupbox's checkable hint. V2.1 will add
+        # live single-component invert handling on click.
+        self.components_group = QGroupBox("Components (top by size)")
+        self.components_group.setCheckable(True)
+        self.components_group.setChecked(True)
+        self.components_group.setVisible(False)
+        self.components_group.setToolTip(
+            "Per-component diagnostic chips populated after the "
+            "orientation pass. Each chip shows a connected normal "
+            "component's voxel count; hover for its mean normal "
+            "direction. In V2.0 these chips are informational only; "
+            "use 'Invert normals globally' if the overall orientation "
+            "is wrong."
+        )
+        self._components_layout = QHBoxLayout(self.components_group)
+        self._components_layout.setContentsMargins(8, 4, 8, 4)
+        self._components_layout.addStretch(1)
+        # Show/hide the inner widgets when the group is unchecked.
+        self.components_group.toggled.connect(
+            lambda checked: [
+                self._components_layout.itemAt(i).widget().setVisible(checked)
+                for i in range(self._components_layout.count())
+                if self._components_layout.itemAt(i).widget() is not None
+            ]
+        )
+        # We track chip widgets separately so _on_components_info can
+        # wipe them cleanly between runs.
+        self._component_chips: list = []
+        layout.addWidget(self.components_group)
+
         return box
 
     def _build_log_section(self) -> QGroupBox:
@@ -747,6 +862,11 @@ class MainWindow(QMainWindow):
             "ambient": float(self.ambient_slider.value()) / 100.0,
             "ground_color": tuple(int(c) for c in ground),
             "sky_color": tuple(int(c) for c in sky),
+            "up_vector": (
+                float(self.up_x_spin.value()),
+                float(self.up_y_spin.value()),
+                float(self.up_z_spin.value()),
+            ),
             "invert_globally": bool(self.invert_normals_check.isChecked()),
         }
 
@@ -755,7 +875,7 @@ class MainWindow(QMainWindow):
         try:
             # Late import: lets the UI module load (and smoke-test) even
             # if D2's worker module isn't on disk yet.
-            from intensity_rgb.worker import PipelineWorker
+            from intensity_rgb.worker import create_worker_thread
         except Exception as exc:
             QMessageBox.critical(
                 self,
@@ -773,17 +893,31 @@ class MainWindow(QMainWindow):
         self.peak_rss_label.setText("Peak RSS: —")
         self.eta_label.setText("ETA: —")
         self.voxel_quality_label.setText("Voxel quality: —")
+        # Wipe the component chips from any previous run.
+        self._clear_component_chips()
+        self.components_group.setVisible(False)
         self._log(f"Starting job: {spec['mode']} → {spec['output_path']}")
 
-        self._worker = PipelineWorker(spec, parent=self)
-        self._worker.progress.connect(self._on_progress)
-        self._worker.throughput.connect(self._on_throughput)
-        self._worker.peak_rss.connect(self._on_peak_rss)
-        self._worker.voxel_quality.connect(self._on_voxel_quality)
-        self._worker.eta_seconds.connect(self._on_eta)
-        self._worker.log.connect(self._log)
-        self._worker.finished.connect(self._on_finished)
-        self._worker.start()
+        # Worker spec keys are slightly different from the UI dict (D2
+        # contract uses "input"/"output", not "input_path"/"output_path");
+        # adapt here so the rest of the file stays UI-shaped.
+        worker_spec = dict(spec)
+        worker_spec["input"] = spec["input_path"]
+        worker_spec["output"] = spec["output_path"]
+
+        thread, worker = create_worker_thread(worker_spec)
+        self._worker_thread = thread
+        self._worker = worker
+        worker.progress.connect(self._on_progress)
+        worker.throughput.connect(self._on_throughput)
+        worker.peak_rss.connect(self._on_peak_rss)
+        worker.voxel_quality.connect(self._on_voxel_quality)
+        worker.eta_seconds.connect(self._on_eta)
+        worker.log.connect(self._log)
+        worker.finished.connect(self._on_finished)
+        worker.components_info.connect(self._on_components_info)
+        worker.stage.connect(self._on_stage)
+        thread.start()
         self.start_button.setEnabled(False)
         self.cancel_button.setEnabled(True)
 
@@ -800,21 +934,77 @@ class MainWindow(QMainWindow):
     # Worker signal slots
     # ------------------------------------------------------------------
 
-    def _on_progress(self, evt) -> None:
-        # evt is a ProgressEvent (from pipeline) — has points_done, points_total, stage.
-        total = getattr(evt, "points_total", 0) or 0
-        done = getattr(evt, "points_done", 0) or 0
+    def _on_progress(self, done: int, total: int) -> None:
+        # Matches worker.progress = Signal(int, int) — (points_done, points_total).
+        # The worker also emits a separate `stage` signal we plumb below.
         if total > 0:
             pct = max(0, min(100, int(done * 100 / total)))
             self.progress_bar.setValue(pct)
             self.progress_text_label.setText(
-                f"{_format_points(done)} / {_format_points(total)} pts "
-                f"({getattr(evt, 'stage', '')})"
+                f"{_format_points(done)} / {_format_points(total)} pts"
+                + (f" ({self._current_stage})" if self._current_stage else "")
             )
         else:
             self.progress_text_label.setText(
-                f"{_format_points(done)} pts ({getattr(evt, 'stage', '')})"
+                f"{_format_points(done)} pts"
+                + (f" ({self._current_stage})" if self._current_stage else "")
             )
+
+    def _on_stage(self, stage: str) -> None:
+        self._current_stage = stage or ""
+
+    def _on_components_info(self, components: list) -> None:
+        """Receive top-K orientation components from the worker and
+        populate the read-only chip row in the Job section.
+
+        Each chip is a non-interactive QToolButton with text
+        ``#{id}: {voxel_count} voxels`` and a tooltip describing the
+        mean-normal direction. Per D3 scope decision, live per-component
+        invert is V2.1; clicking the chip in V2.0 only logs a note.
+        """
+        self._clear_component_chips()
+        if not components:
+            self.components_group.setVisible(False)
+            return
+        for entry in components:
+            try:
+                cid = int(entry.get("id", 0))
+                vc = int(entry.get("voxel_count", 0))
+                mn = entry.get("mean_normal") or (0.0, 0.0, 0.0)
+                mx, my, mz = float(mn[0]), float(mn[1]), float(mn[2])
+            except Exception:
+                continue
+            chip = QToolButton(self.components_group)
+            chip.setText(f"#{cid}: {_format_points(vc)} voxels")
+            chip.setToolTip(
+                f"Component #{cid}\n"
+                f"voxel count: {vc:,}\n"
+                f"mean normal: ({mx:+.3f}, {my:+.3f}, {mz:+.3f})\n"
+                "(v2.1: click to invert this component)"
+            )
+            chip.setAutoRaise(True)
+            # Click logs a placeholder. V2.1 will wire single-component invert.
+            chip.clicked.connect(
+                lambda _checked=False, _c=cid: self._log(
+                    f"Per-component invert is a V2.1 feature (component #{_c})."
+                )
+            )
+            # Insert before the trailing stretch so chips left-align.
+            self._components_layout.insertWidget(
+                self._components_layout.count() - 1, chip
+            )
+            self._component_chips.append(chip)
+        self.components_group.setVisible(True)
+
+    def _clear_component_chips(self) -> None:
+        """Remove and delete every chip currently in the components row."""
+        for chip in self._component_chips:
+            try:
+                self._components_layout.removeWidget(chip)
+                chip.deleteLater()
+            except Exception:
+                pass
+        self._component_chips = []
 
     def _on_throughput(self, pts_per_sec: float) -> None:
         if pts_per_sec and pts_per_sec > 0:
@@ -862,6 +1052,208 @@ class MainWindow(QMainWindow):
         cursor = self.log_widget.textCursor()
         cursor.movePosition(QTextCursor.End)
         self.log_widget.setTextCursor(cursor)
+
+    # ------------------------------------------------------------------
+    # Public path helpers (used by tests & external callers)
+    # ------------------------------------------------------------------
+
+    def set_output_path(self, path: str) -> None:
+        """Programmatically set the output path. Used by tests and the
+        QSettings restore path; mirrors :meth:`set_input_path` for
+        symmetry.
+        """
+        self.output_path_edit.setText(path)
+
+    def input_path_text(self) -> str:
+        return self.input_path_edit.text()
+
+    def output_path_text(self) -> str:
+        return self.output_path_edit.text()
+
+    # ------------------------------------------------------------------
+    # QSettings persistence (per Wave 4 / D3)
+    # ------------------------------------------------------------------
+
+    def _qsettings(self) -> QSettings:
+        """Return the per-window QSettings.
+
+        Uses :meth:`QSettings.defaultFormat` so a test fixture can swap
+        the backend to ``IniFormat`` and redirect storage via
+        :meth:`QSettings.setPath` without our code needing to know.
+        """
+        return QSettings(
+            QSettings.defaultFormat(),
+            QSettings.UserScope,
+            QSETTINGS_ORG,
+            QSETTINGS_APP,
+        )
+
+    def _save_settings(self) -> None:
+        """Persist window + bake settings to QSettings.
+
+        Keys live under two namespaces: ``window/*`` for layout and
+        ``paths/*`` + ``bake/*`` for everything the user adjusts before
+        pressing Start. Tolerant of widgets being torn down mid-close.
+        """
+        try:
+            s = self._qsettings()
+            s.setValue("window/geometry", self.saveGeometry())
+            s.setValue("window/state", self.saveState())
+            s.setValue("paths/last_input", self.input_path_edit.text())
+            s.setValue("paths/last_output", self.output_path_edit.text())
+            s.setValue(
+                "bake/intensity_range_min",
+                float(self.intensity_min_spin.value()),
+            )
+            s.setValue(
+                "bake/intensity_range_max",
+                float(self.intensity_max_spin.value()),
+            )
+            s.setValue("bake/brightness", int(self.brightness_slider.value()))
+            s.setValue("bake/shading_mode", str(self._selected_shading_mode()))
+            s.setValue("bake/voxel_size", float(self.voxel_size_spin.value()))
+            s.setValue(
+                "bake/light_azimuth",
+                float(self.light_azimuth_spin.value()),
+            )
+            s.setValue(
+                "bake/light_elevation",
+                float(self.light_elevation_spin.value()),
+            )
+            s.setValue(
+                "bake/ambient",
+                float(self.ambient_slider.value()) / 100.0,
+            )
+            ground = self.ground_picker_button.property("rgb") or (60, 40, 30)
+            sky = self.sky_picker_button.property("rgb") or (180, 210, 255)
+            s.setValue("bake/ground_color", QColor(*ground))
+            s.setValue("bake/sky_color", QColor(*sky))
+            s.setValue(
+                "bake/up_vector",
+                f"{self.up_x_spin.value()},{self.up_y_spin.value()},{self.up_z_spin.value()}",
+            )
+            s.setValue(
+                "bake/invert_globally",
+                bool(self.invert_normals_check.isChecked()),
+            )
+            s.sync()
+        except Exception:  # pragma: no cover - defensive
+            pass
+
+    def _load_settings(self) -> None:
+        """Restore window + bake settings from QSettings.
+
+        Missing keys leave each widget at its default. Saved input/output
+        paths that no longer exist on disk are blanked rather than
+        re-displayed — matches the D3 prompt's "don't show stale path"
+        requirement.
+        """
+        try:
+            s = self._qsettings()
+        except Exception:  # pragma: no cover - defensive
+            return
+
+        # Window geometry / dock state.
+        geom = s.value("window/geometry")
+        if isinstance(geom, (QByteArray, bytes)):
+            try:
+                self.restoreGeometry(QByteArray(geom))
+            except Exception:
+                pass
+        state = s.value("window/state")
+        if isinstance(state, (QByteArray, bytes)):
+            try:
+                self.restoreState(QByteArray(state))
+            except Exception:
+                pass
+
+        # Paths — validate existence before restoring.
+        last_in = s.value("paths/last_input", "")
+        if isinstance(last_in, str) and last_in and os.path.isfile(last_in):
+            self.input_path_edit.setText(last_in)
+        # else: leave blank (don't restore stale paths)
+
+        last_out = s.value("paths/last_output", "")
+        if isinstance(last_out, str) and last_out:
+            # Output is a file we're about to write — validate by checking
+            # the *parent directory* exists. If the dir is gone, blank it.
+            parent = os.path.dirname(last_out) or "."
+            if os.path.isdir(parent):
+                self.output_path_edit.setText(last_out)
+
+        # Bake settings — each guarded individually so a corrupted value
+        # for one key doesn't take out the rest.
+        def _f(key: str, default: float) -> float:
+            v = s.value(key, default)
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                return float(default)
+
+        def _i(key: str, default: int) -> int:
+            v = s.value(key, default)
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                return int(default)
+
+        def _b(key: str, default: bool) -> bool:
+            v = s.value(key, default)
+            if isinstance(v, bool):
+                return v
+            if isinstance(v, str):
+                return v.lower() in ("1", "true", "yes", "on")
+            try:
+                return bool(int(v))
+            except (TypeError, ValueError):
+                return default
+
+        self.intensity_min_spin.setValue(_f("bake/intensity_range_min", 0.0))
+        self.intensity_max_spin.setValue(_f("bake/intensity_range_max", 4096.0))
+        self.brightness_slider.setValue(_i("bake/brightness", 70))
+
+        shading = s.value("bake/shading_mode", "lambertian")
+        if shading == "none":
+            self.shade_none_radio.setChecked(True)
+        elif shading == "lambertian":
+            self.shade_lambertian_radio.setChecked(True)
+        elif shading == "three_point":
+            self.shade_three_pt_radio.setChecked(True)
+        elif shading == "normal_as_color":
+            self.shade_normal_radio.setChecked(True)
+
+        self.voxel_size_spin.setValue(_f("bake/voxel_size", 0.5))
+        self.light_azimuth_spin.setValue(_f("bake/light_azimuth", 135.0))
+        self.light_elevation_spin.setValue(_f("bake/light_elevation", 45.0))
+        self.ambient_slider.setValue(int(round(_f("bake/ambient", 0.30) * 100)))
+
+        ground = s.value("bake/ground_color")
+        if isinstance(ground, QColor) and ground.isValid():
+            rgb = (ground.red(), ground.green(), ground.blue())
+            self.ground_picker_button.setText(f"({rgb[0]},{rgb[1]},{rgb[2]})")
+            self.ground_picker_button.setProperty("rgb", rgb)
+        sky = s.value("bake/sky_color")
+        if isinstance(sky, QColor) and sky.isValid():
+            rgb = (sky.red(), sky.green(), sky.blue())
+            self.sky_picker_button.setText(f"({rgb[0]},{rgb[1]},{rgb[2]})")
+            self.sky_picker_button.setProperty("rgb", rgb)
+
+        up_str = s.value("bake/up_vector", "")
+        if isinstance(up_str, str) and up_str:
+            try:
+                ux, uy, uz = [float(x) for x in up_str.split(",")]
+                self.up_x_spin.setValue(ux)
+                self.up_y_spin.setValue(uy)
+                self.up_z_spin.setValue(uz)
+            except (ValueError, TypeError):
+                pass
+
+        self.invert_normals_check.setChecked(_b("bake/invert_globally", False))
+
+    def closeEvent(self, event) -> None:
+        """Persist QSettings on every window close."""
+        self._save_settings()
+        super().closeEvent(event)
 
 
 # ---------------------------------------------------------------------------

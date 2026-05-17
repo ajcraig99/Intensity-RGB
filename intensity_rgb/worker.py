@@ -71,6 +71,11 @@ _THROUGHPUT_WINDOW_SEC: float = 3.0
 # from going faster than the eye.
 _EMIT_MIN_INTERVAL_SEC: float = 0.5
 
+# Per-component invert chips show the K largest components. K matches
+# design §"Normal orientation" — 8 keeps the chip row readable even on a
+# narrow window.
+TOP_K_COMPONENTS: int = 8
+
 
 def _format_count(n: int) -> str:
     """Format point counts with thousands separators."""
@@ -139,6 +144,11 @@ class PipelineWorker(QObject):
     stage = Signal(str)
     # Connected-component count from orient_normals (bake_normals only).
     n_components = Signal(int)
+    # Top-K components (per design): list of dicts with keys
+    # {"id": int, "voxel_count": int, "mean_normal": [x, y, z]}.
+    # Emitted once after Pass 1's orient_normals completes (bake_normals
+    # only). Sorted by voxel_count desc; clipped to TOP_K_COMPONENTS.
+    components_info = Signal(list)
 
     def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
@@ -241,6 +251,7 @@ class PipelineWorker(QObject):
                     block_size=block_size,
                     on_progress=self._on_progress,
                     cancel_flag=self._cancel_flag,
+                    on_orientation_result=self._on_orientation_result,
                 )
                 result = pipeline_bake_normals(input_path, output_path, **kwargs)
 
@@ -271,6 +282,42 @@ class PipelineWorker(QObject):
         summary = _build_summary(result)
         self.log.emit(summary)
         self.finished.emit(True, summary)
+
+    # ------------------------------------------------------------------
+    # Internal: orientation-pass callback (bake_normals only)
+    # ------------------------------------------------------------------
+
+    def _on_orientation_result(self, orient_result: object) -> None:
+        """Convert the pipeline's ``OrientationResult`` into a UI-friendly
+        payload and emit ``components_info``.
+
+        Called on the worker thread by ``pipeline_bake_normals`` once
+        Pass 1 finishes orienting normals. We slice to ``TOP_K_COMPONENTS``
+        (components are already sorted by voxel_count desc per
+        ``OrientationResult`` docstring) and serialize each entry as a
+        plain dict so the receiver doesn't need to import the
+        orientation module.
+        """
+        try:
+            components = list(getattr(orient_result, "components", []) or [])
+        except Exception:
+            return
+        payload = []
+        for idx, comp in enumerate(components[:TOP_K_COMPONENTS]):
+            try:
+                mn = comp.mean_normal
+                mean = [float(mn[0]), float(mn[1]), float(mn[2])]
+            except Exception:
+                mean = [0.0, 0.0, 0.0]
+            payload.append({
+                "id": idx,
+                "voxel_count": int(getattr(comp, "voxel_count", 0)),
+                "mean_normal": mean,
+            })
+        try:
+            self.components_info.emit(payload)
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Internal: pipeline progress callback
