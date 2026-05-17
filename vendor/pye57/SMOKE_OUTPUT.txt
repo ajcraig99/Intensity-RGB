@@ -1,0 +1,24 @@
+pye57 version: <module 'pye57.__version__' from '/home/arron/projects/Intensity-RGB/vendor/pye57/src/pye57/__version__.py'>
+pye57 module:  /home/arron/projects/Intensity-RGB/vendor/pye57/src/pye57/__init__.py
+Opening:       /home/arron/projects/Intensity-RGB/carpark_stairs.e57
+scan_count:    1
+scan[0] point_fields (7):
+  - cartesianX
+  - cartesianY
+  - cartesianZ
+  - intensity
+  - colorRed
+  - colorGreen
+  - colorBlue
+scan[0] total points: 4138438
+scan[0] first 10 points (raw):
+  [0] {'cartesianX': 0.007520259823650122, 'cartesianY': -0.011959884315729141, 'cartesianZ': 1.8689502477645874, 'intensity': 0.37254902720451355, 'colorRed': 123.0, 'colorGreen': 107.0, 'colorBlue': 92.0}
+  [1] {'cartesianX': 0.018820110708475113, 'cartesianY': -0.008790071122348309, 'cartesianZ': 1.8683797121047974, 'intensity': 0.364705890417099, 'colorRed': 122.0, 'colorGreen': 102.0, 'colorBlue': 91.0}
+  [2] {'cartesianX': 0.030140157788991928, 'cartesianY': -0.0056199911050498486, 'cartesianZ': 1.8690001964569092, 'intensity': 0.3607843220233917, 'colorRed': 122.0, 'colorGreen': 102.0, 'colorBlue': 91.0}
+  [3] {'cartesianX': 0.041430167853832245, 'cartesianY': -0.002460004761815071, 'cartesianZ': 1.868039608001709, 'intensity': 0.3333333432674408, 'colorRed': 124.0, 'colorGreen': 104.0, 'colorBlue': 93.0}
+  [4] {'cartesianX': 0.052740275859832764, 'cartesianY': 0.0007101043011061847, 'cartesianZ': 1.8677599430084229, 'intensity': 0.3450980484485626, 'colorRed': 124.0, 'colorGreen': 104.0, 'colorBlue': 93.0}
+  [5] {'cartesianX': 0.06405015289783478, 'cartesianY': 0.003870004788041115, 'cartesianZ': 1.8678998947143555, 'intensity': 0.3294117748737335, 'colorRed': 124.0, 'colorGreen': 104.0, 'colorBlue': 97.0}
+  [6] {'cartesianX': 0.07539006322622299, 'cartesianY': 0.007039931137114763, 'cartesianZ': 1.8684698343276978, 'intensity': 0.3686274588108063, 'colorRed': 124.0, 'colorGreen': 104.0, 'colorBlue': 93.0}
+  [7] {'cartesianX': 0.08671009540557861, 'cartesianY': 0.010209976695477962, 'cartesianZ': 1.8682101964950562, 'intensity': 0.3803921639919281, 'colorRed': 122.0, 'colorGreen': 105.0, 'colorBlue': 97.0}
+  [8] {'cartesianX': 0.09804008156061172, 'cartesianY': 0.013379951938986778, 'cartesianZ': 1.8683797121047974, 'intensity': 0.37254902720451355, 'colorRed': 122.0, 'colorGreen': 105.0, 'colorBlue': 97.0}
+  [9] {'cartesianX': 0.10939015448093414, 'cartesianY': 0.016560019925236702, 'cartesianZ': 1.868479609489441, 'intensity': 0.38823530077934265, 'colorRed': 123.0, 'colorGreen': 106.0, 'colorBlue': 98.0}
