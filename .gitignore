@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/work/
+tests/artifacts/*.png
+tests/artifacts/*.e57
+vendor/pye57/build/
+vendor/pye57/*.egg-info/
+vendor/pye57/src/pye57.egg-info/
+vendor/pye57/src/pye57/*.so
+vendor/pye57/src/pye57/__pycache__/
+*.so
+!tests/artifacts/.gitkeep

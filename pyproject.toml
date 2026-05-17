@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "intensity-rgb"
+version = "2.0.0a0"
+description = "Streaming .e57 point cloud recolor tool (intensity -> RGB with optional Eye-Dome Lighting shading)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Arron Craig", email = "arron.craig@pdvconsultants.com" },
+]
+dependencies = [
+    "numpy>=2.0",
+    "scipy>=1.13",
+    "PySide6>=6.7",
+    "matplotlib>=3.8",
+]
+
+[project.optional-dependencies]
+# pye57 is vendored under vendor/pye57 and installed separately by the build
+# pipeline (see vendor/pye57). This entry is for documentation only — the
+# actual runtime import comes from the vendored install.
+e57 = ["pye57"]
+dev = ["pytest"]
+
+[project.scripts]
+intensity-recolor = "intensity_rgb.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["intensity_rgb"]
