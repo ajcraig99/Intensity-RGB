@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Intensity-RGB</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #1a1a2e;
+      --surface:  #16213e;
+      --border:   #0f3460;
+      --accent:   #e94560;
+      --accent2:  #0f3460;
+      --text:     #eaeaea;
+      --muted:    #8892a4;
+      --green:    #4ecca3;
+      --radius:   8px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      font-size: 14px;
+      min-height: 100vh;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 40px 16px;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 32px;
+      width: 100%;
+      max-width: 680px;
+    }
+
+    h1 {
+      font-size: 20px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+    }
+    .subtitle { color: var(--muted); font-size: 12px; margin-bottom: 28px; }
+
+    .field { margin-bottom: 18px; }
+    label  { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+    input[type="text"],
+    input[type="number"] {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-size: 13px;
+      padding: 9px 12px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    input:focus { border-color: var(--accent); }
+
+    .row { display: flex; gap: 12px; }
+    .row .field { flex: 1; }
+
+    .range-row { display: flex; gap: 12px; align-items: flex-end; }
+    .range-row .field { flex: 1; }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+    .slider-row { display: flex; align-items: center; gap: 12px; }
+    .slider-row input[type="range"] { flex: 1; }
+    .slider-val {
+      min-width: 42px;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      color: var(--green);
+      font-weight: 600;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      border: none;
+      border-radius: var(--radius);
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 9px 18px;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+    .btn:active { transform: scale(0.97); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+    .btn-secondary { background: var(--border); color: var(--text); }
+    .btn-primary   { background: var(--accent); color: #fff; padding: 11px 28px; font-size: 14px; }
+    .btn-primary:hover:not(:disabled) { opacity: 0.88; }
+
+    .detect-row { display: flex; align-items: flex-end; gap: 10px; }
+    .detect-row .field { flex: 1; }
+
+    hr { border: none; border-top: 1px solid var(--border); margin: 24px 0; }
+
+    /* Progress */
+    #progress-section { display: none; }
+    .prog-label { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 12px; color: var(--muted); }
+    .prog-track {
+      background: var(--border);
+      border-radius: 999px;
+      height: 8px;
+      overflow: hidden;
+    }
+    .prog-bar {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--accent), var(--green));
+      border-radius: 999px;
+      transition: width 0.4s ease;
+    }
+
+    /* Results */
+    #results-section { display: none; margin-top: 20px; }
+    .results-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+    .result-box {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+    }
+    .result-box .val { font-size: 18px; font-weight: 700; color: var(--green); }
+    .result-box .lbl { font-size: 11px; color: var(--muted); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.4px; }
+
+    .output-path {
+      margin-top: 14px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 14px;
+      font-size: 12px;
+      color: var(--muted);
+      word-break: break-all;
+    }
+    .output-path span { color: var(--green); }
+
+    /* Error */
+    #error-box {
+      display: none;
+      margin-top: 16px;
+      background: rgba(233,69,96,0.12);
+      border: 1px solid var(--accent);
+      border-radius: var(--radius);
+      padding: 12px 16px;
+      color: var(--accent);
+      font-size: 13px;
+    }
+
+    .status-dot {
+      display: inline-block;
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      margin-right: 6px;
+      background: var(--muted);
+    }
+    .status-dot.running { background: var(--green); animation: pulse 1s infinite; }
+    .status-dot.done    { background: var(--green); animation: none; }
+    .status-dot.error   { background: var(--accent); animation: none; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.3; }
+    }
+
+    .footer { margin-top: 28px; font-size: 11px; color: var(--muted); text-align: center; }
+  </style>
+</head>
+<body>
+<div class="card">
+  <h1>Intensity → RGB</h1>
+  <p class="subtitle">Converts point cloud intensity values to HSV-mapped RGB colours</p>
+
+  <!-- Source file -->
+  <div class="detect-row">
+    <div class="field">
+      <label>Source .PTS file path</label>
+      <input type="text" id="source-path" placeholder="C:\Scans\example.pts  or  /mnt/c/Scans/example.pts">
+    </div>
+    <button class="btn btn-secondary" id="detect-btn" onclick="detectRange()" style="margin-bottom:18px">
+      Auto-detect range
+    </button>
+  </div>
+
+  <!-- Intensity range -->
+  <div class="row">
+    <div class="field">
+      <label>Min intensity</label>
+      <input type="number" id="min-inten" value="0">
+    </div>
+    <div class="field">
+      <label>Max intensity</label>
+      <input type="number" id="max-inten" value="255">
+    </div>
+  </div>
+
+  <!-- Brightness -->
+  <div class="field">
+    <label>Brightness</label>
+    <div class="slider-row">
+      <input type="range" id="brightness" min="10" max="100" value="70"
+             oninput="document.getElementById('bright-val').textContent = this.value + '%'">
+      <span class="slider-val" id="bright-val">70%</span>
+    </div>
+  </div>
+
+  <hr>
+
+  <div style="display:flex; justify-content:flex-end;">
+    <button class="btn btn-primary" id="start-btn" onclick="startProcess()">Start processing</button>
+  </div>
+
+  <!-- Progress -->
+  <div id="progress-section">
+    <hr>
+    <div class="prog-label">
+      <span><span class="status-dot" id="status-dot"></span><span id="status-text">Processing…</span></span>
+      <span id="prog-pct">0%</span>
+    </div>
+    <div class="prog-track"><div class="prog-bar" id="prog-bar"></div></div>
+    <div style="font-size:11px; color:var(--muted); margin-top:6px;" id="chunk-label"></div>
+  </div>
+
+  <!-- Results -->
+  <div id="results-section">
+    <div class="results-grid">
+      <div class="result-box">
+        <div class="val" id="res-points">—</div>
+        <div class="lbl">Points</div>
+      </div>
+      <div class="result-box">
+        <div class="val" id="res-time">—</div>
+        <div class="lbl">Processing time</div>
+      </div>
+      <div class="result-box">
+        <div class="val" id="res-size">—</div>
+        <div class="lbl">Output size</div>
+      </div>
+    </div>
+    <div class="output-path">Saved to: <span id="res-path">—</span></div>
+  </div>
+
+  <!-- Error -->
+  <div id="error-box"></div>
+
+  <p class="footer">Output is saved to your Desktop with a timestamp · Runs locally, no data leaves your machine</p>
+</div>
+
+<script>
+  let eventSource = null;
+
+  async function detectRange() {
+    const path = document.getElementById('source-path').value.trim();
+    if (!path) { alert('Enter a source file path first.'); return; }
+    const btn = document.getElementById('detect-btn');
+    btn.disabled = true;
+    btn.textContent = 'Scanning…';
+    try {
+      const res = await fetch('/detect-range', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ path }),
+      });
+      const data = await res.json();
+      if (data.error) { showError(data.error); return; }
+      document.getElementById('min-inten').value = data.min;
+      document.getElementById('max-inten').value = data.max;
+      btn.textContent = `Done — ${data.size}`;
+    } catch (e) {
+      showError(e.message);
+    } finally {
+      btn.disabled = false;
+      if (btn.textContent === 'Scanning…') btn.textContent = 'Auto-detect range';
+    }
+  }
+
+  async function startProcess() {
+    const source     = document.getElementById('source-path').value.trim();
+    const min_inten  = document.getElementById('min-inten').value;
+    const max_inten  = document.getElementById('max-inten').value;
+    const brightness = document.getElementById('brightness').value;
+
+    if (!source) { alert('Enter a source file path.'); return; }
+    hideError();
+    setRunning(true);
+
+    const res = await fetch('/process', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ source, min_inten, max_inten, brightness }),
+    });
+    const data = await res.json();
+    if (data.error) { showError(data.error); setRunning(false); return; }
+
+    subscribeToJob(data.job_id);
+  }
+
+  function subscribeToJob(jobId) {
+    if (eventSource) eventSource.close();
+    eventSource = new EventSource(`/stream/${jobId}`);
+    document.getElementById('progress-section').style.display = 'block';
+    document.getElementById('results-section').style.display  = 'none';
+
+    eventSource.onmessage = (e) => {
+      const job = JSON.parse(e.data);
+      updateProgress(job);
+      if (job.status === 'done') {
+        eventSource.close();
+        showResults(job);
+        setRunning(false);
+      } else if (job.status === 'error') {
+        eventSource.close();
+        showError(job.error || 'Unknown error');
+        setRunning(false);
+      }
+    };
+    eventSource.onerror = () => {
+      eventSource.close();
+      showError('Lost connection to server.');
+      setRunning(false);
+    };
+  }
+
+  function updateProgress(job) {
+    const done  = job.done  || 0;
+    const total = job.total || 1;
+    const pct   = Math.round((done / total) * 100);
+    document.getElementById('prog-bar').style.width = pct + '%';
+    document.getElementById('prog-pct').textContent = pct + '%';
+    document.getElementById('chunk-label').textContent =
+      job.status === 'running' ? `Chunk ${done} of ${total} complete` : '';
+
+    const dot  = document.getElementById('status-dot');
+    const text = document.getElementById('status-text');
+    dot.className  = 'status-dot ' + (job.status === 'running' ? 'running' : job.status);
+    text.textContent = job.status === 'running' ? `Processing with ${job.workers || '?'} workers…`
+                     : job.status === 'done'    ? 'Complete'
+                     : job.status;
+  }
+
+  function showResults(job) {
+    document.getElementById('results-section').style.display = 'block';
+    document.getElementById('res-points').textContent = Number(job.points).toLocaleString();
+    document.getElementById('res-time').textContent   = job.time_str   || '—';
+    document.getElementById('res-size').textContent   = job.out_size   || '—';
+    document.getElementById('res-path').textContent   = job.out_path   || '—';
+    document.getElementById('prog-bar').style.width   = '100%';
+    document.getElementById('prog-pct').textContent   = '100%';
+  }
+
+  function setRunning(running) {
+    document.getElementById('start-btn').disabled    = running;
+    document.getElementById('detect-btn').disabled   = running;
+  }
+
+  function showError(msg) {
+    const box = document.getElementById('error-box');
+    box.textContent = '⚠ ' + msg;
+    box.style.display = 'block';
+  }
+
+  function hideError() {
+    document.getElementById('error-box').style.display = 'none';
+  }
+</script>
+</body>
+</html>
