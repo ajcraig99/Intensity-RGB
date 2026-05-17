@@ -832,20 +832,10 @@ class MainWindow(QMainWindow):
         sky = self.sky_picker_button.property("rgb") or (180, 210, 255)
 
         shading = self._selected_shading_mode()
-        # Map UI mode to the worker's "mode" string. For now we always
-        # write the bake pipeline; "none" + "intensity-mapped" → just the
-        # intensity bake; anything else → the normal bake with the chosen
-        # shading kernel.
         if shading == "none":
             mode = "bake_intensity"
-        elif shading == "lambertian":
-            mode = "bake_normals_lambertian"
-        elif shading == "three_point":
-            mode = "bake_normals_three_point"
-        elif shading == "normal_as_color":
-            mode = "bake_normals_normal_as_color"
         else:
-            mode = "bake_intensity"
+            mode = "bake_normals"
 
         return {
             "input_path": self.input_path_edit.text().strip(),
