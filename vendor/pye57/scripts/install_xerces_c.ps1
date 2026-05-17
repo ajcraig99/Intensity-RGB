@@ -22,7 +22,7 @@ Set-Location "xerces-c-${XERCES_VERSION}"
 Write-Host "Configure Xerces-C..."
 if (-not (Test-Path "build")) { New-Item -ItemType Directory -Path "build" | Out-Null }
 Set-Location "build"
-cmake -G "Visual Studio 17 2022" -A x64 -DCMAKE_INSTALL_PREFIX="$INSTALL_PREFIX" ..
+cmake -G "Visual Studio 17 2022" -A x64 -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_INSTALL_PREFIX="$INSTALL_PREFIX" ..
 
 Write-Host "Build Xerces-C..."
 cmake --build . --config Release --target install

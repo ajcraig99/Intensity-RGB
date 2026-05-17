@@ -23,10 +23,14 @@ from __future__ import annotations
 import argparse
 import math
 import os
-import resource
 import sys
 import time
 import traceback
+
+try:
+    import resource
+except ImportError:  # Windows lacks the resource module
+    resource = None
 from typing import Callable, Optional, Sequence, Tuple
 
 
@@ -165,6 +169,8 @@ def _fmt_pts(n: int) -> str:
 
 def _peak_rss_bytes() -> int:
     """Peak resident-set size of this process in bytes (Linux)."""
+    if resource is None:
+        return 0
     ru = resource.getrusage(resource.RUSAGE_SELF)
     # On Linux ``ru_maxrss`` is in kilobytes.
     return int(ru.ru_maxrss) * 1024
