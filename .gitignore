@@ -11,4 +11,11 @@ vendor/pye57/src/pye57.egg-info/
 vendor/pye57/src/pye57/*.so
 vendor/pye57/src/pye57/__pycache__/
 *.so
+
+# pye57 setup.py copies xerces runtime into the package on Windows builds.
+vendor/pye57/src/pye57/*.dll
+
+# Claude Code session state — not a project artifact.
+.claude/
+
 !tests/artifacts/.gitkeep
