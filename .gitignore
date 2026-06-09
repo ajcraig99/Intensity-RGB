@@ -18,4 +18,9 @@ vendor/pye57/src/pye57/*.dll
 # Claude Code session state — not a project artifact.
 .claude/
 
+# Obsidian per-user UI state — volatile, not shared.
+docs/.obsidian/workspace.json
+docs/.obsidian/workspace-mobile.json
+docs/.obsidian/cache
+
 !tests/artifacts/.gitkeep
